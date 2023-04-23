@@ -1,20 +1,23 @@
-use candid::{Principal};
-use hex::{FromHex};
+use candid::{Principal, CandidType};
+use hex::FromHex;
 use ic_cdk_macros::{query, update};
 use siwe::{Message, VerificationOpts};
 use std::collections::BTreeMap;
-use std::str::{self, FromStr};
-use time::{OffsetDateTime};
+use std::str::FromStr;
+use time::format_description::well_known::Rfc3339;
+use time::OffsetDateTime;
 
 
-#[derive(Clone, Debug)]
+const SESSION_EXPIRATION_IN_MINS: i64 = 5;
+const CLEANUP_INTERCAL_IN_MINS: i64 = 15;
+
+#[derive(Clone, Debug, CandidType)]
 struct Session {
-    address: [u8; 20],
-    expires: OffsetDateTime,   
+    address: String,
+    expires_at: i64,   
 }
 
 type SessionMap = BTreeMap<Principal, Session>;
-
 
 thread_local! {
     static SESSIONS: std::cell::RefCell<SessionMap> = std::cell::RefCell::new(BTreeMap::new());
@@ -22,39 +25,37 @@ thread_local! {
 }
 
 
-async fn validate(siwe_msg: &str, siwe_sig: &str) -> [u8; 20] {
+async fn validate(msg: &Message, sig: &str) -> [u8; 20] {
     
     let opts = VerificationOpts {
         domain: None,
         nonce: None,
-        timestamp: Some(OffsetDateTime::from_unix_timestamp((ic_cdk::api::time() / (1000 * 1000 * 1000)) as i64).unwrap())
+        timestamp: Some(OffsetDateTime::from_unix_timestamp((ic_cdk::api::time() / (1_000_000_000)) as i64).unwrap())
     };
 
-    let msg = Message::from_str(siwe_msg).unwrap();
-    let sig = <[u8; 65]>::from_hex( siwe_sig.strip_prefix("0x").unwrap_or(siwe_sig)).unwrap();
+    
+    let sig = <[u8; 65]>::from_hex( sig.strip_prefix("0x").unwrap_or(sig)).unwrap();
 
     msg.verify(&sig, &opts).await.unwrap();
 
     msg.address
 }
 
-fn check_session() -> Result<(), String> {
+fn check_session() -> Result<String, String> {
     
     let caller = ic_cdk::api::caller();
-    let now =  OffsetDateTime::from_unix_timestamp((ic_cdk::api::time() / (1000 * 1000 * 1000)) as i64).unwrap();
+    let now =  (ic_cdk::api::time() / (1_000_000_000)) as i64;
 
     ic_cdk::api::print(std::format!("Checking session for {}", ic_cdk::api::caller().to_text()));
-
 
     SESSIONS.with(|sessions| {
         let mut sessions = sessions.borrow_mut();
         let session = sessions.get(&caller).ok_or("No session found")?;
-        ic_cdk::api::print(std::format!("Session found for {}", hex::encode(session.address)));
-        if session.expires < now {
+        if session.expires_at < now {
             sessions.remove(&caller);
-            return Err("Session expired".to_string());
+            Err("Session expired".to_string())
         } else {
-            return Ok(());
+            Ok(session.address.clone())
         }
 
     })
@@ -63,53 +64,77 @@ fn check_session() -> Result<(), String> {
 
 #[query]
 fn greet(name: String) -> String {
-    check_session().unwrap();
+    let caller = check_session().unwrap();
+    ic_cdk::api::print(std::format!("Active session for {}", caller));
     format!("Hello, {}!", name)
 }
 
 
 #[update]
-async fn create_session(siwe_msg: String, siwe_sig: String) -> Result<(), String> {
+async fn create_session(siwe_msg: String, siwe_sig: String) -> Result<Session, String> {
 
     ic_cdk::api::print(std::format!("Creating session for {}...", ic_cdk::api::caller().to_text()));
 
-    let address = validate(&siwe_msg, &siwe_sig).await;
+    let msg = Message::from_str(&siwe_msg).unwrap();
+    validate(&msg, &siwe_sig).await;
 
-    ic_cdk::api::print(std::format!("Associated ETH account {:?}", hex::encode(address)));
+    let address = hex::encode(msg.address);
 
-    let now =  OffsetDateTime::from_unix_timestamp((ic_cdk::api::time() / (1000 * 1000 * 1000)) as i64).unwrap();
-    let expires = now + time::Duration::minutes(5);
+    ic_cdk::api::print(std::format!("Associated ETH account {:?}", address));
 
+    let now =  OffsetDateTime::from_unix_timestamp((ic_cdk::api::time() / 1_000_000_000) as i64).unwrap();
+    
+    let issued_at = OffsetDateTime::parse(&msg.issued_at.to_string(), &Rfc3339).unwrap();
+    let expires_at = issued_at + time::Duration::minutes(SESSION_EXPIRATION_IN_MINS);
+
+    
+    
     let session = Session {
         address,
-        expires,
+        expires_at: expires_at.unix_timestamp(),
     };
 
     SESSIONS.with(|sessions| {
         let mut sessions = sessions.borrow_mut();
-        sessions.insert(ic_cdk::api::caller(), session);
+        sessions.insert(ic_cdk::api::caller(), session.clone());
     });
 
-    ic_cdk::api::print(std::format!("Created session for {}, expires at {:?}", ic_cdk::api::caller().to_text(), expires));
+    ic_cdk::api::print(std::format!("Created session for {}, expires at {:?}", ic_cdk::api::caller().to_text(), expires_at));
 
     LAST_CLEANUP.with(|last_cleanup| {
         let mut last_cleanup = last_cleanup.borrow_mut();
-        if now - *last_cleanup > time::Duration::minutes(15) {
-            cleanup_sessions();
+        if now - *last_cleanup > time::Duration::minutes(CLEANUP_INTERCAL_IN_MINS) {
+            _cleanup_sessions();
             *last_cleanup = now;
         }
     });
 
-    Ok(())
+    Ok(session)
 }
 
 #[query]
+fn get_session() -> Result<Session, String> {
+    check_session().unwrap();
+    SESSIONS.with(|sessions| {
+        let sessions = sessions.borrow();
+        let session = sessions.get(&ic_cdk::api::caller()).ok_or("No session found. Please sign in.")?;
+        Ok(session.clone())
+    })
+}
 
-fn cleanup_sessions() {
-    let now =  OffsetDateTime::from_unix_timestamp((ic_cdk::api::time() / (1000 * 1000 * 1000)) as i64).unwrap();
+#[update]
+fn clear_session() {
+    SESSIONS.with(|sessions| {
+        let mut sessions = sessions.borrow_mut();
+        sessions.remove(&ic_cdk::api::caller());
+    });
+}
+
+fn _cleanup_sessions() {
+    let now =  (ic_cdk::api::time() / 1_000_000_000) as i64;
 
     SESSIONS.with(|sessions| {
         let mut sessions = sessions.borrow_mut();
-        sessions.retain(|_, session| session.expires > now);
+        sessions.retain(|_, session| session.expires_at > now);
     });
 }

@@ -41,9 +41,8 @@ async function signInWithEthereum (statement) {
     await signer.getAddress(), 
       statement
     );
-  console.log(message);
+
   signature = await signer.signMessage(message);
-  console.log(signature);
 
   const identity = await Ed25519KeyIdentity.generate();
 
@@ -51,7 +50,8 @@ async function signInWithEthereum (statement) {
   agent.replaceIdentity(identity);
   
   try {
-    await siwe_ic_backend.create_session(message, signature);
+    const session = await siwe_ic_backend.create_session(message, signature);
+    console.log(session);
     isAuthenticated = true;
   } catch (e) {
     console.log(e);
