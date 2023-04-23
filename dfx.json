@@ -1,0 +1,30 @@
+{
+  "canisters": {
+    "siwe_ic_backend": {
+      "candid": "src/siwe_ic_backend/siwe_ic_backend.did",
+      "package": "siwe_ic_backend",
+      "type": "rust"
+    },
+    "siwe_ic_frontend": {
+      "dependencies": [
+        "siwe_ic_backend"
+      ],
+      "frontend": {
+        "entrypoint": "src/siwe_ic_frontend/src/index.html"
+      },
+      "source": [
+        "src/siwe_ic_frontend/assets",
+        "dist/siwe_ic_frontend/"
+      ],
+      "type": "assets"
+    }
+  },
+  "defaults": {
+    "build": {
+      "args": "",
+      "packtool": ""
+    }
+  },
+  "output_env_file": ".env",
+  "version": 1
+}

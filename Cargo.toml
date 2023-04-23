@@ -1,0 +1,4 @@
+[workspace]
+members = [
+    "src/siwe_ic_backend",
+]
