@@ -1,11 +1,10 @@
-import { Actor, HttpAgent } from "@dfinity/agent";
+import { Actor } from "@dfinity/agent";
 import { Ed25519KeyIdentity } from "@dfinity/identity";
-import { siwe_ic_backend } from "../../declarations/siwe_ic_backend";
+import { siwe_ic_backend, canisterId } from "../../declarations/siwe_ic_backend";
 import { ethers } from 'ethers';
 import { SiweMessage } from 'siwe';
 
 const domain = window.location.host;
-const origin = window.location.origin;
 const provider = new ethers.providers.Web3Provider(window.ethereum);
 const signer = provider.getSigner();
 
@@ -13,14 +12,15 @@ let agent;
 
 let isAuthenticated = false;
 
-function createSiweMessage (address, statement) {
+function createSiweMessage (address, statement, delegatee, resources) {
   const message = new SiweMessage({
     domain,
     address,
     statement,
-    uri: origin,
+    uri: delegatee,
     version: '1',
-    chainId: '1'
+    chainId: '1',
+    resources,
   });
   return message.prepareMessage();
 }
@@ -34,17 +34,22 @@ let message = null;
 let signature = null;
 
 async function signInWithEthereum (statement) {
+
+
   if (!statement) {
-    statement = 'Sign in with Ethereum to the app.';
+    statement = 'Sign in with Ethereum';
   }
+
+  const identity = await Ed25519KeyIdentity.generate();
+ 
   message = createSiweMessage(
     await signer.getAddress(), 
-      statement
+      statement,
+      'did:icp:' + identity.getPrincipal(),
+      ['icp:' + canisterId]
     );
 
   signature = await signer.signMessage(message);
-
-  const identity = await Ed25519KeyIdentity.generate();
 
   agent = Actor.agentOf(siwe_ic_backend);
   agent.replaceIdentity(identity);
@@ -63,29 +68,6 @@ async function signInWithEthereum (statement) {
   }
 
 }
-
-async function logout() {
-  await siwe_ic_backend.clear_session();
-  document.getElementById("msg").innerText = "Successfully logged out!";
-  isAuthenticated = false;
-  logoutBtn.hidden = true;
-  siweBtn.hidden = false;
-}
-
-const connectWalletBtn = document.getElementById('connectWalletBtn');
-const siweBtn = document.getElementById('siweBtn');
-const logoutBtn = document.getElementById('logoutBtn');
-logoutBtn.hidden = true;
-connectWalletBtn.onclick = connectWallet;
-connectWalletBtn.hidden = true;
-siweBtn.onclick = signInWithEthereum;
-logoutBtn.onclick = logout;
-
-setTimeout(function() {
-  if (!window.ethereum.isConnected()) {
-    connectWalletBtn.hidden = false;
-  }
-}, 500);
 
 document.querySelector("#greeting_form").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -116,3 +98,28 @@ document.querySelector("#greeting_form").addEventListener("submit", async (e) =>
       
       
 });
+
+async function logout() {
+  await siwe_ic_backend.clear_session();
+  document.getElementById("msg").innerText = "Successfully logged out!";
+  isAuthenticated = false;
+  logoutBtn.hidden = true;
+  siweBtn.hidden = false;
+}
+
+const connectWalletBtn = document.getElementById('connectWalletBtn');
+const siweBtn = document.getElementById('siweBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+logoutBtn.hidden = true;
+connectWalletBtn.onclick = connectWallet;
+connectWalletBtn.hidden = true;
+siweBtn.onclick = function () {
+  signInWithEthereum();
+};
+logoutBtn.onclick = logout;
+
+setTimeout(function() {
+  if (!window.ethereum.isConnected()) {
+    connectWalletBtn.hidden = false;
+  }
+}, 500);

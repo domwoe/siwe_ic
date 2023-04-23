@@ -33,7 +33,13 @@ async fn validate(msg: &Message, sig: &str) -> [u8; 20] {
         timestamp: Some(OffsetDateTime::from_unix_timestamp((ic_cdk::api::time() / (1_000_000_000)) as i64).unwrap())
     };
 
+    // Check if uri is equal to the caller
+    msg.uri.to_string().eq(&format!("did:icp:{}",ic_cdk::api::caller().to_text())).then(|| ()).ok_or("Invoked by unauthorized principal").unwrap();
     
+    // Check if target (canister and method) is part of authorized resources
+    let target = format!("icp:{}",ic_cdk::api::id().to_text());
+    msg.resources.clone().into_iter().find(|r| r.as_str().eq(&target)).ok_or(format!("Unauthorized for resource: {}", &target)).unwrap();
+
     let sig = <[u8; 65]>::from_hex( sig.strip_prefix("0x").unwrap_or(sig)).unwrap();
 
     msg.verify(&sig, &opts).await.unwrap();
