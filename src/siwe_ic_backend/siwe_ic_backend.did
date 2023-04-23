@@ -1,3 +1,8 @@
+type Result = variant {
+    "Ok": null;
+    "Err": text;
+}
 service : {
+    "create_session" : (text, text) ->  (Result);
     "greet": (text) -> (text) query;
 }
