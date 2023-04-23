@@ -77,9 +77,15 @@ const siweBtn = document.getElementById('siweBtn');
 const logoutBtn = document.getElementById('logoutBtn');
 logoutBtn.hidden = true;
 connectWalletBtn.onclick = connectWallet;
+connectWalletBtn.hidden = true;
 siweBtn.onclick = signInWithEthereum;
 logoutBtn.onclick = logout;
 
+setTimeout(function() {
+  if (!window.ethereum.isConnected()) {
+    connectWalletBtn.hidden = false;
+  }
+}, 500);
 
 document.querySelector("#greeting_form").addEventListener("submit", async (e) => {
   e.preventDefault();
