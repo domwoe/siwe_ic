@@ -53,6 +53,10 @@ async function signInWithEthereum (statement) {
     const session = await siwe_ic_backend.create_session(message, signature);
     console.log(session);
     isAuthenticated = true;
+    logoutBtn.hidden = false;
+    siweBtn.hidden = true;
+    document.getElementById("msg").innerText = "Successfully signed in!";
+
   } catch (e) {
     console.log(e);
     isAuthenticated = false;
@@ -60,10 +64,21 @@ async function signInWithEthereum (statement) {
 
 }
 
+async function logout() {
+  await siwe_ic_backend.clear_session();
+  document.getElementById("msg").innerText = "Successfully logged out!";
+  isAuthenticated = false;
+  logoutBtn.hidden = true;
+  siweBtn.hidden = false;
+}
+
 const connectWalletBtn = document.getElementById('connectWalletBtn');
 const siweBtn = document.getElementById('siweBtn');
+const logoutBtn = document.getElementById('logoutBtn');
+logoutBtn.hidden = true;
 connectWalletBtn.onclick = connectWallet;
 siweBtn.onclick = signInWithEthereum;
+logoutBtn.onclick = logout;
 
 
 document.querySelector("#greeting_form").addEventListener("submit", async (e) => {
@@ -78,10 +93,11 @@ document.querySelector("#greeting_form").addEventListener("submit", async (e) =>
     try {
 
       const result = await siwe_ic_backend.greet(name);
-      console.log(result);
+      document.getElementById("msg").innerText = result;
 
     } catch (e){
-      console.log(e);
+      document.getElementById("msg").innerText = e.message;
+      logoutBtn.hidden = true;
       if (isAuthenticated) {
         signInWithEthereum("Your session has expired. Please sign in again.");
       } else {
