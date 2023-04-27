@@ -1,4 +1,5 @@
 use candid::{Principal, CandidType};
+use futures::executor::block_on;
 use hex::FromHex;
 use ic_cdk_macros::{query, update};
 use siwe::{Message, VerificationOpts};
@@ -42,7 +43,7 @@ async fn validate(msg: &Message, sig: &str) -> [u8; 20] {
 
     let sig = <[u8; 65]>::from_hex( sig.strip_prefix("0x").unwrap_or(sig)).unwrap();
 
-    msg.verify(&sig, &opts).await.unwrap();
+    block_on(msg.verify(&sig, &opts)).unwrap();
 
     msg.address
 }
@@ -82,7 +83,7 @@ async fn create_session(siwe_msg: String, siwe_sig: String) -> Result<Session, S
     ic_cdk::api::print(std::format!("Creating session for {}...", ic_cdk::api::caller().to_text()));
 
     let msg = Message::from_str(&siwe_msg).unwrap();
-    validate(&msg, &siwe_sig).await;
+    block_on(validate(&msg, &siwe_sig));
 
     let address = hex::encode(msg.address);
 
